@@ -10,11 +10,10 @@ import statsmodels.api as sm
 import matplotlib.pyplot as plt
 import numpy as np
 import sklearn.preprocessing as pre
-import os
 
 def raw_draft_data_to_file():
     drafts_by_year = {}
-    for year in range(2007,2022):
+    for year in range(2006,2022):
         url = "https://www.eliteprospects.com/draft/nhl-entry-draft/" + str(year)
         response = requests.get(url)
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -25,7 +24,7 @@ def raw_draft_data_to_file():
     #return drafts_by_year
 
 def raw_advanced_data_to_file():
-    for year in range(2015, 2025):
+    for year in range(2010, 2025):
         print(year)
         url = "https://www.hockey-reference.com/leagues/NHL_" + str(year) + "_goalies.html"
         response = requests.get(url)

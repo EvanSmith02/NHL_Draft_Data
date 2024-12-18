@@ -1,4 +1,3 @@
-import requests
 import re
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -10,7 +9,6 @@ import statsmodels.api as sm
 import matplotlib.pyplot as plt
 import numpy as np
 import sklearn.preprocessing as pre
-import os
 
 def write_cleaned_draft_data():
     drafts_by_year = get_drafted_players()
@@ -25,7 +23,7 @@ def write_cleaned_draft_data():
 
 def get_drafted_players():
     drafts_by_year = {}
-    for year in range(2010,2022):
+    for year in range(2006,2022):
         with open('./data/raw/draft_year_' + str(year) + ".html", 'r', encoding='utf-8') as file:
             soup = BeautifulSoup(file, 'html.parser')
             drafts_by_year[year] = read_prospects(soup, year)
@@ -33,7 +31,7 @@ def get_drafted_players():
 
 def get_goalie_stats():
     hr_goalie_df = pd.DataFrame(columns = ['Rk', 'Player', 'Age', 'Team', 'Pos', 'GP', 'GS', 'W', 'L', 'T/O', 'GA', 'Shots', 'SV', 'SV%', 'GAA', 'SO', 'MIN', 'QS', 'QS%', 'RBS', 'GA%-', 'GSAA', 'GAA/A', 'GPS', 'G', 'A', 'PTS', 'PIM', 'Awards'])
-    for year in range(2015, 2025):
+    for year in range(2010, 2025):
         with open('./data/raw/goalie_stat_year_' + str(year) + ".html", 'r', encoding='utf-8') as file:
             tables = pd.read_html(file)
             print(f"Found {len(tables)} tables")
@@ -53,8 +51,8 @@ def get_skater_stats():
     hr_skater_df = pd.DataFrame(columns = ['Rk', 'Player', 'Age', 'Team', 'Pos', 'GP', 'G', 'A', 'PTS', '+/-',
        'PIM', 'EVG', 'PPG', 'SHG', 'GWG', 'EV', 'PP', 'SH', 'SOG', 'SPCT',
        'TSA', 'TOI', 'ATOI', 'FOW', 'FOL', 'FO%', 'BLK', 'HIT', 'TAKE', 'GIVE'])
-    url = "https://www.hockey-reference.com/leagues/NHL_2024_skaters.html"
-    for year in range(2015, 2025):
+    total_data_points = 0
+    for year in range(2010, 2025):
         with open('./data/raw/skater_stat_year_' + str(year) + ".html", 'r', encoding='utf-8') as file:
             tables = pd.read_html(file)
             print(f"Found {len(tables)} tables")
@@ -62,6 +60,7 @@ def get_skater_stats():
                                 'PIM', 'EVG', 'PPG', 'SHG', 'GWG', 'EV', 'PP', 'SH', 'SOG', 'SPCT',
                                 'TSA', 'TOI', 'ATOI', 'FOW', 'FOL', 'FO%', 'BLK', 'HIT', 'TAKE', 'GIVE', 'Awards']
             tables[0].drop(["Awards"], axis = 1)
+            total_data_points += len(tables[0])
             for i in range(len(tables[0])):
                 row = tables[0].loc[i]
                 #print(row)
@@ -71,19 +70,24 @@ def get_skater_stats():
                     hr_skater_df.loc[hr_skater_df["Player"] == row["Player"], "ATOI"] = max(hr_skater_df[hr_skater_df["Player"] == row["Player"]].loc[:, "ATOI"].iloc[0], row["ATOI"])
                 else:
                     hr_skater_df.loc[len(hr_skater_df)] = row
+    print(f"Total Data Points For Stats = {total_data_points}")
     hr_skater_df.to_csv('data/processed/skater_stats.csv', encoding='utf-8')
     
 def merge_skater():
     draft_df = pd.read_csv('data/processed/draft_data.csv')
     skater_df = pd.read_csv('data/processed/skater_stats.csv')
     goalie_df = pd.read_csv('data/processed/goalie_stats.csv')
+    player_bodies_df = pd.read_csv('data/processed/playerBodies.csv')
+    player_bodies_df = player_bodies_df[['Player', 'Weight', 'Height', 'Position']]
     
-    merged_df = pd.merge(skater_df, draft_df[draft_df["Position"] != 'G'], on='Player', how='right')
+    merged_df = pd.merge(skater_df, draft_df[draft_df["Position"] != 'G'], on=['Player'], how='right')
+    merged_df = pd.merge(player_bodies_df[player_bodies_df['Position'] != 'G'], merged_df, on=['Player', 'Position'], how='right')
     merged_df = merged_df.drop(columns = ['Pos', 'Unnamed: 0_x'])
     merged_df = merged_df.fillna(0)
     forward_df = merged_df[merged_df['Position'] == 'F']
     defender_df = merged_df[merged_df['Position'] == 'D']
-    merge_goalies = pd.merge(goalie_df, draft_df[draft_df["Position"] == 'G'], on = 'Player', how='right').fillna(0)
+    merge_goalies = pd.merge(goalie_df, draft_df[draft_df["Position"] == 'G'], on = ['Player'], how='right').fillna(0)
+    merge_goalies = pd.merge(player_bodies_df[player_bodies_df['Position'] == 'G'], merge_goalies, on = ['Player', 'Position'], how='right').fillna(0)
     
     forward_df.to_csv('data/processed/forward_merged_stats.csv', encoding='utf-8')
     defender_df.to_csv('data/processed/defender_merged_stats.csv', encoding='utf-8')
@@ -165,6 +169,20 @@ def read_prospects(soup, year):
         current_round += 1
     return draft_data
 
+def height_to_total_inches(height):
+    split = height.split('\' ')
+    return int(split[0]) * 12 + int(split[1][:-1])
+
+# Note I got this CSV file from https://moneypuck.com/data.htm
+def read_allPlayersLookup():
+    df = pd.read_csv('data/raw/allPlayersLookup.csv')
+    df.columns = ['PlayerId', 'Player', 'Position', 'Team', 'Birth Date', 'Weight', 'Height', 'Nationality', 'Shoots Catches', 'Primary Number', 'Primary Position']
+    df = df.dropna(subset=['Height', 'Player', 'Weight'])
+    df['Position'] = df['Position'].replace('L', 'F').replace('R', 'F')
+    df['Height'] = df['Height'].apply(height_to_total_inches)
+    df.to_csv('data/processed/playerBodies.csv', encoding='utf-8')
+
+read_allPlayersLookup()
 write_cleaned_draft_data()
 get_goalie_stats()
 get_skater_stats()
